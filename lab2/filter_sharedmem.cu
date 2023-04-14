@@ -34,6 +34,7 @@
 #define maxKernelSizeX 10
 #define maxKernelSizeY 10
 
+const int blockSize = 32; // #threads per block
 
 __global__ void filter(unsigned char *image, unsigned char *out, const unsigned int imagesizex, const unsigned int imagesizey, const int kernelsizex, const int kernelsizey)
 { 
@@ -41,32 +42,33 @@ __global__ void filter(unsigned char *image, unsigned char *out, const unsigned 
 	int x = blockIdx.x * blockDim.x + threadIdx.x;
 	int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-  int dy, dx;
-  unsigned int sumx, sumy, sumz;
+  	int dy, dx;
+  	unsigned int sumx, sumy, sumz;
 
+  // shared memory 
+  	__shared__ unsigned char img_buffer[blockSize*blockSize*3];
 
-  
-  int divby = (2*kernelsizex+1)*(2*kernelsizey+1); // Works for box filters only!
-	
+  	int divby = (2*kernelsizex+1)*(2*kernelsizey+1); // Works for box filters only!
+
 	if (x < imagesizex && y < imagesizey) // If inside image
 	{
-// Filter kernel (simple box filter)
-	sumx=0;sumy=0;sumz=0;
-	for(dy=-kernelsizey;dy<=kernelsizey;dy++)
-		for(dx=-kernelsizex;dx<=kernelsizex;dx++)	
-		{
-			// Use max and min to avoid branching!
-			int yy = min(max(y+dy, 0), imagesizey-1);
-			int xx = min(max(x+dx, 0), imagesizex-1);
-			
-            // replace the following with the shared memory variables
-			sumx += image[((yy)*imagesizex+(xx))*3+0]; 
-			sumy += image[((yy)*imagesizex+(xx))*3+1];
-			sumz += image[((yy)*imagesizex+(xx))*3+2];
-		}
-	out[(y*imagesizex+x)*3+0] = sumx/divby;
-	out[(y*imagesizex+x)*3+1] = sumy/divby;
-	out[(y*imagesizex+x)*3+2] = sumz/divby;
+	// Filter kernel (simple box filter)
+		sumx=0;sumy=0;sumz=0;
+	// Loop across image, from -filtersize to +filtersize Default is 2,2 ( so it is a 5x5 box filter.) -2   -   2 (-2,-1,0,1,2)
+		for(dy=-kernelsizey;dy<=kernelsizey;dy++) 		// y direction 
+			for(dx=-kernelsizex;dx<=kernelsizex;dx++)	// x direction
+			{
+				// Use max and min to avoid branching!
+				int yy = min(max(y+dy, 0), imagesizey-1);
+				int xx = min(max(x+dx, 0), imagesizex-1);
+
+				sumx += image[((yy)*imagesizex+(xx))*3+0];
+				sumy += image[((yy)*imagesizex+(xx))*3+1];
+				sumz += image[((yy)*imagesizex+(xx))*3+2];
+			}
+		out[(y*imagesizex+x)*3+0] = sumx/divby;
+		out[(y*imagesizex+x)*3+1] = sumy/divby;
+		out[(y*imagesizex+x)*3+2] = sumz/divby;
 	}
 }
 
@@ -90,7 +92,9 @@ void computeImages(int kernelsizex, int kernelsizey)
 	cudaMalloc( (void**)&dev_input, imagesizex*imagesizey*3);
 	cudaMemcpy( dev_input, image, imagesizey*imagesizex*3, cudaMemcpyHostToDevice );
 	cudaMalloc( (void**)&dev_bitmap, imagesizex*imagesizey*3);
-	dim3 grid(imagesizex,imagesizey);
+
+	dim3 dimBlock(blockSize,blockSize);
+	dim3 dimgrid(imagesizex/blockSize,imagesizey/blockSize);
 
 	// creating cuda events for timing
 	cudaEvent_t beforeEvent;
@@ -100,7 +104,7 @@ void computeImages(int kernelsizex, int kernelsizey)
 	cudaEventCreate(&afterEvent);
 	cudaEventRecord(beforeEvent, 0);
 
-	filter<<<grid,1>>>(dev_input, dev_bitmap, imagesizex, imagesizey, kernelsizex, kernelsizey); // Awful load balance
+	filter<<<dimgrid,dimBlock>>>(dev_input, dev_bitmap, imagesizex, imagesizey, kernelsizex, kernelsizey); // Awful load balance
 	cudaDeviceSynchronize();
 
 	// cuda timing events

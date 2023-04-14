@@ -41,10 +41,10 @@ __global__ void filter(unsigned char *image, unsigned char *out, const unsigned 
 	int x = blockIdx.x * blockDim.x + threadIdx.x;
 	int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-  int dy, dx;
-  unsigned int sumx, sumy, sumz;
+	int dy, dx;
+  	unsigned int sumx, sumy, sumz;
 
-  int divby = (2*kernelsizex+1)*(2*kernelsizey+1); // Works for box filters only!
+  	int divby = (2*kernelsizex+1)*(2*kernelsizey+1); // Works for box filters only!
 	
 	if (x < imagesizex && y < imagesizey) // If inside image
 	{
