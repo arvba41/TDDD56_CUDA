@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include "milli.c"
 
 // Image data
 	unsigned char	*pixels = NULL;
@@ -40,7 +41,7 @@ void initBitmap(int width, int height)
 #define DIM 512
 
 // Select precision here! float or double!
-#define MYFLOAT float
+#define MYFLOAT double
 
 // User controlled parameters
 int maxiter = 20;
@@ -167,7 +168,13 @@ void PrintHelp()
 // Compute fractal and display image
 void Draw()
 {
+	ResetMilli(); // inserting cpu timer (reset)	
+
 	computeFractal(pixels);
+
+	int thetime_cpu = GetMicroseconds(); // record the time after addition operation 
+
+	printf("the time taken for the event is %d us. \n", thetime_cpu);
 	
 // Dump the whole picture onto the screen. (Old-style OpenGL but without lots of geometry that doesn't matter so much.)
 	glClearColor( 0.0, 0.0, 0.0, 1.0 );
@@ -262,8 +269,10 @@ int main( int argc, char** argv)
 	glutMotionFunc(mouse_motion);
 	glutKeyboardFunc(KeyboardProc);
 	glutReshapeFunc(Reshape);
-	
+
 	initBitmap(DIM, DIM);
 	
+	int thetime_cpu = GetMicroseconds(); // record the time after addition operation 
+
 	glutMainLoop();
 }
