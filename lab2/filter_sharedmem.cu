@@ -36,41 +36,109 @@
 
 const int blockSize = 32; // #threads per block
 
+/* This is the original code -----------
 __global__ void filter(unsigned char *image, unsigned char *out, const unsigned int imagesizex, const unsigned int imagesizey, const int kernelsizex, const int kernelsizey)
 { 
   // map from blockIdx to pixel position
 	int x = blockIdx.x * blockDim.x + threadIdx.x;
 	int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-  	int dy, dx;
+	int dy, dx;
   	unsigned int sumx, sumy, sumz;
 
-  // shared memory 
-  	__shared__ unsigned char img_buffer[blockSize*blockSize*3];
-
   	int divby = (2*kernelsizex+1)*(2*kernelsizey+1); // Works for box filters only!
+	
+	if (x < imagesizex && y < imagesizey) // If inside image
+	{
+// Filter kernel (simple box filter)
+	sumx=0;sumy=0;sumz=0;
+	for(dy=-kernelsizey;dy<=kernelsizey;dy++)
+		for(dx=-kernelsizex;dx<=kernelsizex;dx++)	
+		{
+			// Use max and min to avoid branching!
+			int yy = min(max(y+dy, 0), imagesizey-1);
+			int xx = min(max(x+dx, 0), imagesizex-1);
+			
+			sumx += image[((yy)*imagesizex+(xx))*3+0];
+			sumy += image[((yy)*imagesizex+(xx))*3+1];
+			sumz += image[((yy)*imagesizex+(xx))*3+2];
+		}
+	out[(y*imagesizex+x)*3+0] = sumx/divby;
+	out[(y*imagesizex+x)*3+1] = sumy/divby;
+	out[(y*imagesizex+x)*3+2] = sumz/divby;
+	}
+} 
+*/
+
+// function for the filter with shared memory
+__global__ void filter_sharedmem(unsigned char *image, unsigned char *out, const unsigned int imagesizex, const unsigned int imagesizey, const int kernelsizex, const int kernelsizey)
+{  
+    // map from blockIdx to pixel position
+	int x = blockIdx.x * blockDim.x + threadIdx.x;
+	int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+	// normalization factor
+	int divby = (2*kernelsizex+1)*(2*kernelsizey+1); // Works for box filters only!
+
+    // int dy, dx;
+    unsigned int sumx, sumy, sumz;
+
+	/* ---Shared memeoty part-- */
+    // Max #Threads per block (3 chars per pixel)
+    __shared__ unsigned char imgArray[blockSize*blockSize*3];
+  
+    imgArray[(threadIdx.y*blockDim.x+threadIdx.x)*3+0] = image[(y*imagesizex+x)*3+0];
+    imgArray[(threadIdx.y*blockDim.x+threadIdx.x)*3+1] = image[(y*imagesizex+x)*3+1];
+	imgArray[(threadIdx.y*blockDim.x+threadIdx.x)*3+2] = image[(y*imagesizex+x)*3+2];
+
+    // synchronize between threads 
+    __syncthreads();
 
 	if (x < imagesizex && y < imagesizey) // If inside image
 	{
-	// Filter kernel (simple box filter)
-		sumx=0;sumy=0;sumz=0;
-	// Loop across image, from -filtersize to +filtersize Default is 2,2 ( so it is a 5x5 box filter.) -2   -   2 (-2,-1,0,1,2)
-		for(dy=-kernelsizey;dy<=kernelsizey;dy++) 		// y direction 
-			for(dx=-kernelsizex;dx<=kernelsizex;dx++)	// x direction
-			{
-				// Use max and min to avoid branching!
-				int yy = min(max(y+dy, 0), imagesizey-1);
-				int xx = min(max(x+dx, 0), imagesizex-1);
+        // Filter kernel (simple box filter)
+        sumx=0;sumy=0;sumz=0;
+        //Loop across image, from -filtersize to +filtersize 
+        //Default is 2,2 ( so it is a 5x5 box filter.) -2   -   2 (-2,-1,0,1,2)
+        for(int dy=-kernelsizey;dy<=kernelsizey;dy++) {  // y direction
+            // both directions, total size is 5x5 = 25 (DivBy) variable
+            for(int dx=-kernelsizex;dx<=kernelsizex;dx++) { // x direction
+                
+				// creating a new indexing variable becuase we not have a shared memory bank
+				int index = (threadIdx.y*blockDim.x+threadIdx.x) + dy*blockDim.x + dx; 
 
-				sumx += image[((yy)*imagesizex+(xx))*3+0];
-				sumy += image[((yy)*imagesizex+(xx))*3+1];
-				sumz += image[((yy)*imagesizex+(xx))*3+2];
-			}
-		out[(y*imagesizex+x)*3+0] = sumx/divby;
-		out[(y*imagesizex+x)*3+1] = sumy/divby;
+				/* --- the seris of checks --- 
+				1. Ensuring that the index is withing the block bounds 
+				2. The shared memory for one element near and at the corners are ignored
+				*/
+                if(!((index < 0) || (index > (blockSize*blockSize-1)) || (dx > (blockDim.x-kernelsizex)) || (dy > (blockDim.y-kernelsizey)))) {
+                    
+                    sumx += imgArray[index*3+0];
+                    sumy += imgArray[index*3+1];
+                    sumz += imgArray[index*3+2];
+                    
+                } 
+				else { // Outside of block row
+                    int yy = min(max(y+dy, 0), imagesizey-1);
+                    int xx = min(max(x+dx, 0), imagesizex-1);
+
+                    sumx += image[((yy)*imagesizex+(xx))*3+0];
+                    sumy += image[((yy)*imagesizex+(xx))*3+1];
+                    sumz += image[((yy)*imagesizex+(xx))*3+2];
+                }
+            }
+        }
+
+        // printf("inverse is %f \n", invDivBy);
+        // printf("Inverse x is %f", sumx*invDivBy);
+        // printf(" x is %f", sumx/divby);
+
+        out[(y*imagesizex+x)*3+0] = sumx/divby;
+        out[(y*imagesizex+x)*3+1] = sumy/divby;
 		out[(y*imagesizex+x)*3+2] = sumz/divby;
 	}
 }
+
 
 // Global variables for image data
 
@@ -104,7 +172,7 @@ void computeImages(int kernelsizex, int kernelsizey)
 	cudaEventCreate(&afterEvent);
 	cudaEventRecord(beforeEvent, 0);
 
-	filter<<<dimgrid,dimBlock>>>(dev_input, dev_bitmap, imagesizex, imagesizey, kernelsizex, kernelsizey); // Awful load balance
+	filter_sharedmem<<<dimgrid,dimBlock>>>(dev_input, dev_bitmap, imagesizex, imagesizey, kernelsizex, kernelsizey); // Awful load balance
 	cudaDeviceSynchronize();
 
 	// cuda timing events
