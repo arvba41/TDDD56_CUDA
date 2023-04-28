@@ -35,13 +35,14 @@
 #define maxKernelSizeY 10
 
 // Use these for setting the filter kernal size
-#define filterSizeX 10
-#define filterSizeY 10
+#define filterSizeX 5
+#define filterSizeY 5
 
 const int blockSize = 32; // #threads per block
 
 // Use this for setting the image file name
-#define FileName "maskros512.ppm" // files names to choose from baboon1.ppm, maskros512.ppm, maskros-noisy.ppm, img1.ppm, img1-noisy.ppm
+#define FileName "img1-noisy.ppm" // files names to choose from baboon1.ppm, maskros512.ppm, maskros-noisy.ppm, img1.ppm, img1-noisy.ppm
+
 
 // This is the original code -----------
 __global__ void filter(unsigned char *image, unsigned char *out, const unsigned int imagesizex, const unsigned int imagesizey, const int kernelsizex, const int kernelsizey)
@@ -76,14 +77,14 @@ __global__ void filter(unsigned char *image, unsigned char *out, const unsigned 
 	}
 } 
 
-__global__ void filter_sharedmem(unsigned char *image, unsigned char *out, const unsigned int imagesizex, const unsigned int imagesizey, const int kernelsizex, const int kernelsizey)
+__global__ void filter_gauss_xAvg(unsigned char *image, unsigned char *out, const unsigned int imagesizex, const unsigned int imagesizey, const int kernelsizex, const int kernelsizey, const int *stencil_d)
 {
 	// creating a tile scaling 
 	const int tile = blockDim.x - 2*kernelsizex;
 	
 	// map from blockIdx to pixel position
-	int x = blockIdx.x * tile + threadIdx.x-kernelsizex;
-	int y = blockIdx.y * tile + threadIdx.y-kernelsizey;
+	int x = blockIdx.x * tile + threadIdx.x - kernelsizex;
+	int y = blockIdx.y * blockDim.x + threadIdx.y;
 	
 	// Use max and min to avoid branching
 	x = min(max(x, 0), imagesizex-1);
@@ -98,35 +99,82 @@ __global__ void filter_sharedmem(unsigned char *image, unsigned char *out, const
 
 	__syncthreads();
 
-	if((threadIdx.x >= kernelsizex) && (threadIdx.x < (blockDim.x-kernelsizex)) &&
-		(threadIdx.y >= kernelsizey) && (threadIdx.y < (blockDim.y-kernelsizey))) {
+	if((threadIdx.x >= kernelsizex) && (threadIdx.x < (blockDim.x-kernelsizex))) {
 
 		unsigned int sumx, sumy, sumz;
-		int dy, dx;
-		sumx=0;sumy=0;sumz=0;                                                                                            
+		int dx;
+		sumx=0;sumy=0;sumz=0;    
+		
+		int stencilPos = 0; // init stencil position
+
+        for(dx=-kernelsizex;dx<=kernelsizex;dx++) {
+
+			sumx += imagebuffer[((blockDim.x*threadIdx.y + threadIdx.x)+dx)*3+0]*stencil_d[stencilPos];
+			sumy += imagebuffer[((blockDim.x*threadIdx.y + threadIdx.x)+dx)*3+1]*stencil_d[stencilPos];
+		    sumz += imagebuffer[((blockDim.x*threadIdx.y + threadIdx.x)+dx)*3+2]*stencil_d[stencilPos];
+			stencilPos++;
+		}
+
+		int divby = 16; // Works for box filters only!
+
+		out[(imagesizex*y + x)*3+0] = sumx/divby;
+		out[(imagesizex*y + x)*3+1] = sumy/divby;
+		out[(imagesizex*y + x)*3+2] = sumz/divby;
+	}
+}
+
+__global__ void filter_gauss_yAvg(unsigned char *image, unsigned char *out, const unsigned int imagesizex, const unsigned int imagesizey, const int kernelsizex, const int kernelsizey, const int *stencil_d)
+{
+	// creating a tile scaling 
+	const int tile = blockDim.y - 2*kernelsizey;
+	
+	// map from blockIdx to pixel position
+	int x = blockIdx.x * blockDim.y + threadIdx.x;
+	int y = blockIdx.y * tile + threadIdx.y - kernelsizey;
+	
+	// Use max and min to avoid branching
+	x = min(max(x, 0), imagesizex-1);
+	y = min(max(y, 0), imagesizey-1);
+
+	// shared memory initialization
+	__shared__ unsigned char imagebuffer[blockSize*blockSize*3];
+
+	imagebuffer[(blockDim.x*threadIdx.y + threadIdx.x)*3+0] = image[(imagesizex*y + x)*3+0];
+	imagebuffer[(blockDim.x*threadIdx.y + threadIdx.x)*3+1] = image[(imagesizex*y + x)*3+1];
+	imagebuffer[(blockDim.x*threadIdx.y + threadIdx.x)*3+2] = image[(imagesizex*y + x)*3+2];
+
+	__syncthreads();
+
+	if((threadIdx.y >= kernelsizey) && (threadIdx.y < (blockDim.y-kernelsizey))) {
+		
+        unsigned int sumx, sumy, sumz;
+		int dy;
+		sumx=0;sumy=0;sumz=0;      
+		
+		int stencilPos = 0;
 
 		for(dy=-kernelsizey;dy<=kernelsizey;dy++)
 		{
-			for(dx=-kernelsizex;dx<=kernelsizex;dx++)
-			{
-
-				sumx += imagebuffer[((blockDim.x*threadIdx.y + threadIdx.x)+(dy*blockDim.x)+dx)*3+0];
-				sumy += imagebuffer[((blockDim.x*threadIdx.y + threadIdx.x)+(dy*blockDim.x)+dx)*3+1];
-				sumz += imagebuffer[((blockDim.x*threadIdx.y + threadIdx.x)+(dy*blockDim.x)+dx)*3+2];
-
-			}
+			sumx += imagebuffer[((blockDim.x*threadIdx.y + threadIdx.x)+(dy*blockDim.x))*3+0]*stencil_d[stencilPos];
+			sumy += imagebuffer[((blockDim.x*threadIdx.y + threadIdx.x)+(dy*blockDim.x))*3+1]*stencil_d[stencilPos];
+            sumz += imagebuffer[((blockDim.x*threadIdx.y + threadIdx.x)+(dy*blockDim.x))*3+2]*stencil_d[stencilPos];
+			stencilPos++;
 		}
-		maskros512
+
+		int divby = 16; // Works for box filters only!
+
+		out[(imagesizex*y + x)*3+0] = sumx/divby;
 		out[(imagesizex*y + x)*3+1] = sumy/divby;
 		out[(imagesizex*y + x)*3+2] = sumz/divby;
 	}
 }
 
 // Global variables for image data
-unsigned char *image, *pixels, *dev_bitmap, *dev_input;
+unsigned char *image, *pixels, *dev_bitmap, *dev_input, *temp_bitmap;
 unsigned int imagesizey, imagesizex; // Image size
+int *stencil_d; // gaussian filter gain
 
-/////////////////////////////////// /////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 // main computation function
 ////////////////////////////////////////////////////////////////////////////////
 void computeImages(int kernelsizex, int kernelsizey)
@@ -142,10 +190,17 @@ void computeImages(int kernelsizex, int kernelsizey)
 	cudaMemcpy( dev_input, image, imagesizey*imagesizex*3, cudaMemcpyHostToDevice );
 	cudaMalloc( (void**)&dev_bitmap, imagesizex*imagesizey*3);
 
-	dim3 dimBlock(blockSize,blockSize);
-	dim3 dimgrid((imagesizex/(blockSize-kernelsizex*2)+1), (imagesizex/(blockSize-kernelsizey*2)+1));
+    cudaMalloc( (void**)&temp_bitmap, imagesizex*imagesizey*3); // temprary memory
 
-	// creating cuda events for timing
+	int stencil_h[5] = {1,4,6,4,1};
+    cudaMalloc((void**)&stencil_d, 5*sizeof(int)); 
+    cudaMemcpy(stencil_d, stencil_h, 5*sizeof(int), cudaMemcpyHostToDevice);
+
+	dim3 dimBlock(blockSize,blockSize);
+	// dim3 subBlock(imagesizex/maxKernelSizeX,imagesizey/maxKernelSizeY);
+    dim3 subBlock((imagesizex/(blockSize-kernelsizex*2)+1), (imagesizex/(blockSize-kernelsizey*2)+1));
+
+	// creating cuda events for timinfilterSizeXg
 	cudaEvent_t beforeEvent;
 	cudaEvent_t afterEvent;
 	float theTime;
@@ -157,12 +212,21 @@ void computeImages(int kernelsizex, int kernelsizey)
 	// filter<<<dimgrid,dimBlock>>>(dev_input, dev_bitmap, imagesizex, imagesizey, kernelsizex, kernelsizey); // Awful load balance
 
 	// Task 1
-	filter_sharedmem<<<dimgrid,dimBlock>>>(dev_input, dev_bitmap, imagesizex, imagesizey, kernelsizex, kernelsizey); // Awful load balance
+    dim3 gridX(subBlock.x, imagesizey/blockSize);
 
+    printf("number of xblocks for gauss xAvg is %d  \n ", gridX.x);
+    printf("number of yblocks for gauss xAvg is %d  \n ", gridX.y);
+    filter_gauss_xAvg<<<gridX,dimBlock>>>(dev_input, temp_bitmap, imagesizex, imagesizey, kernelsizex, kernelsizey, stencil_d); // Awful load balance
+	cudaDeviceSynchronize();
+
+    dim3 gridY(imagesizex/blockSize, subBlock.y);
+    printf("number of xblocks for gauss yAvg is %d  \n ", gridY.x);
+    printf("number of yblocks for gauss yAvg is %d  \n ", gridY.y);
+    filter_gauss_yAvg<<<gridY,dimBlock>>>(temp_bitmap, dev_bitmap, imagesizex, imagesizey, kernelsizex, kernelsizey, stencil_d); // Awful load balance
 	cudaDeviceSynchronize();
 
 	// cuda timing events
-	cudaEventRecord(afterEvent, 0); 
+	cudaEventRecord(afterEvent, 0);
 	cudaEventSynchronize(afterEvent);
 	cudaEventElapsedTime(&theTime, beforeEvent, afterEvent);
 
@@ -173,7 +237,7 @@ void computeImages(int kernelsizex, int kernelsizey)
     if (err != cudaSuccess)
         printf("Error: %s\n", cudaGetErrorString(err));
 	
-	cudaMemcpy( pixels, dev_bitmap, imagesizey*imagesizex*3, cudaMemcpyDeviceToHost );
+    cudaMemcpy( pixels, dev_bitmap, imagesizey*imagesizex*3, cudaMemcpyDeviceToHost );
 	cudaFree( dev_bitmap );
 	cudaFree( dev_input );
 }
