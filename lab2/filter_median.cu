@@ -80,77 +80,81 @@ __global__ void filter(unsigned char *image, unsigned char *out, const unsigned 
 __global__ void filter_median(unsigned char *image, unsigned char *out, const unsigned int imagesizex, const unsigned int imagesizey, const int kernelsizex, const int kernelsizey)
 {
 	// creating a tile scaling 
-	const int tile = blockDim.x - 2*kernelsizex;
+	const int tile = blockDim.x - 2*maxKernelSizeX;
 	
-	// map from blockIdx to pixel position
-	int x = blockIdx.x * tile + threadIdx.x - kernelsizex;
-	int y = blockIdx.y * blockDim.x + threadIdx.y;
-	
-	// Use max and min to avoid branching
-	x = min(max(x, 0), imagesizex-1);
-	y = min(max(y, 0), imagesizey-1);
+    __shared__ unsigned char patch[32*3*32];
+    // map from blockIdx to pixel position
+    int g_x = blockIdx.x * tile + threadIdx.x-kernelsizex;
+    int g_y = blockIdx.y * tile + threadIdx.y-kernelsizey;
+    // Use max and min to avoid branching!
+    g_x = min(max(g_x, 0), imagesizex-1);
+    g_y = min(max(g_y, 0), imagesizey-1);
 
-	// shared memory initialization
-	__shared__ unsigned char imagebuffer[blockSize*blockSize*3];
+    int g_i = imagesizex*g_y + g_x;
 
-	imagebuffer[(blockDim.x*threadIdx.y + threadIdx.x)*3+0] = image[(imagesizex*y + x)*3+0];
-	imagebuffer[(blockDim.x*threadIdx.y + threadIdx.x)*3+1] = image[(imagesizex*y + x)*3+1];
-	imagebuffer[(blockDim.x*threadIdx.y + threadIdx.x)*3+2] = image[(imagesizex*y + x)*3+2];
+    int l_i = threadIdx.x + blockDim.x*threadIdx.y;
+    int l_x = threadIdx.x;
+    int l_y = threadIdx.y;
 
-	__syncthreads();
+    //(y*imagesizex+x)*3+0
 
-    // creating a copy of each pixel value size = (maxKernelSizeX*2+1)*(maxKernelSizeY*2+1)
-    unsigned char r[(maxKernelSizeX*2+1)*(maxKernelSizeY*2+1)];
-    unsigned char g[(maxKernelSizeX*2+1)*(maxKernelSizeY*2+1)];
-    unsigned char b[(maxKernelSizeX*2+1)*(maxKernelSizeY*2+1)];
+    patch[l_i*3+0] = image[g_i*3+0];
+    patch[l_i*3+1] = image[g_i*3+1];
+    patch[l_i*3+2] = image[g_i*3+2];
 
-    unsigned char temp_col;
-    int count = 0;
+    __syncthreads();
+    // Make local copy for each thread
+    const int size = (maxKernelSizeX*2+1)*(maxKernelSizeY*2+1);
 
-	if((threadIdx.x >= kernelsizex) && (threadIdx.x < (blockDim.x-kernelsizex)) && (threadIdx.y >= kernelsizey) && (threadIdx.y < (blockDim.y-kernelsizey))) {
+    unsigned char r[size];
+    unsigned char g[size];
+    unsigned char b[size];
+    int k = (2*kernelsizex+1)*(2*kernelsizey+1);
+    unsigned char temp;
 
-		int dx, dy;
-		
-        for(dy=-kernelsizey;dy<=kernelsizey;dy++)
-        {
-            for(dx=-kernelsizex;dx<=kernelsizex;dx++) {
+    int j = 0;
+    int dx, dy;
 
-                r[count] += imagebuffer[((blockDim.x*threadIdx.y + threadIdx.x)+dx)*3+0];
-                g[count] += imagebuffer[((blockDim.x*threadIdx.y + threadIdx.x)+dx)*3+1];
-                b[count] += imagebuffer[((blockDim.x*threadIdx.y + threadIdx.x)+dx)*3+2];     
-                count++;   
-            }
+    if((l_x >= (kernelsizex)) && (l_x < ((blockDim.x-(kernelsizex)))) &&
+       (l_y >= kernelsizey) && (l_y < (blockDim.y-kernelsizey))) {
+     	 for(dy=-kernelsizey;dy<=kernelsizey;dy++)
+       {
+       		for(dx=-kernelsizex;dx<=kernelsizex;dx++)
+       		{
+             r[j] = patch[(l_i+(dy*blockDim.x)+dx)*3+0];
+             g[j] = patch[(l_i+(dy*blockDim.x)+dx)*3+1];
+             b[j] = patch[(l_i+(dy*blockDim.x)+dx)*3+2];
+             j++;
+       		}
+      }
+
+      //Bubblesort
+      for (int i = 0; i < k-1; i++){
+        for (int j = 0; j < k-i-1; j++) {
+          if (r[j] > r[j+1]) {
+             temp = r[j];
+             r[j] = r[j+1];
+             r[j+1] = temp;
+          }
+          if (g[j] > g[j+1]) {
+             temp = g[j];
+             g[j] = g[j+1];
+             g[j+1] = temp;
+          }
+          if (b[j] > b[j+1]) {
+             temp = b[j];
+             b[j] = b[j+1];
+             b[j+1] = temp;
+          }
         }
+      }
+      unsigned int median = (k-1)/2;
 
-        // Bubble sorting to find the median 
-        for (int ii = 0; ii < ((2*maxKernelSizeX+1)*(2*maxKernelSizeY+1) - 1); ii++) {
-            for (int jj = 0; jj < ((2*maxKernelSizeX+1)*(2*maxKernelSizeY+1) - ii - 1); jj++) {
-                // Red color sorting
-                if (r[jj] > r[jj+1]) {
-                    temp_col = r[jj];
-                    r[jj] = r[jj+1];
-                    r[jj+1] = temp_col;
-                }
-                // Green color sorting
-                if (g[jj] > g[jj+1]) {
-                    temp_col = g[jj];
-                    g[jj] = g[jj+1];
-                    g[jj+1] = temp_col;
-                }
-                // Blue color sorting
-                if (b[jj] > b[jj+1]) {
-                    temp_col = b[jj];
-                    b[jj] = b[jj+1];
-                    b[jj+1] = temp_col;
-                }
-            } 
-        } 
-        unsigned int median = ((2*kernelsizex+1)*(2*kernelsizey+1) - 1)/2;
 
-		out[(imagesizex*y + x)*3+0] = r[median];
-		out[(imagesizex*y + x)*3+1] = g[median];
-		out[(imagesizex*y + x)*3+2] = b[median];
-	}
+      out[g_i*3+0] = r[median];
+      out[g_i*3+1] = g[median];
+      out[g_i*3+2] = b[median];
+    }
 }
 
 // Global variables for image data
