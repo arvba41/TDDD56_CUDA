@@ -116,7 +116,9 @@ __global__ void filter_sharedmem(unsigned char *image, unsigned char *out, const
 
 			}
 		}
-		maskros512
+		int divby = (2*kernelsizex+1)*(2*kernelsizey+1); // Works for box filters only!
+
+		out[(imagesizex*y + x)*3+0] = sumx/divby;
 		out[(imagesizex*y + x)*3+1] = sumy/divby;
 		out[(imagesizex*y + x)*3+2] = sumz/divby;
 	}
@@ -144,6 +146,7 @@ void computeImages(int kernelsizex, int kernelsizey)
 
 	dim3 dimBlock(blockSize,blockSize);
 	dim3 dimgrid((imagesizex/(blockSize-kernelsizex*2)+1), (imagesizex/(blockSize-kernelsizey*2)+1));
+	// dim3 dimgrid((imagesizex/kernelsizex), (imagesizex/kernelsizey));
 
 	// creating cuda events for timing
 	cudaEvent_t beforeEvent;
