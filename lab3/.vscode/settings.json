@@ -1,0 +1,14 @@
+{
+    "files.associations": {
+        "*.tcc": "c",
+        "string_view": "c",
+        "quat": "c",
+        "vec2d": "c",
+        "vec2f": "c",
+        "vec3d": "c",
+        "vec3f": "c",
+        "vec4d": "c",
+        "vec4f": "c",
+        "tuple": "c"
+    }
+}
