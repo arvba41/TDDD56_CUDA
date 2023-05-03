@@ -79,7 +79,7 @@ __global__ void filter(unsigned char *image, unsigned char *out, const unsigned 
 __global__ void filter_sharedmem(unsigned char *image, unsigned char *out, const unsigned int imagesizex, const unsigned int imagesizey, const int kernelsizex, const int kernelsizey)
 {
 	// creating a tile scaling 
-	const int tile = blockDim.x - 2*kernelsizex;
+	const int tile = blockDim.x - (kernelsizex+kernelsizey);
 	
 	// map from blockIdx to pixel position
 	int x = blockIdx.x * tile + threadIdx.x-kernelsizex;

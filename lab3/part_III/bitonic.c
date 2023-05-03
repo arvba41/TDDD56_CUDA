@@ -25,7 +25,7 @@
 #include "milli.h"
 
 // Size of data!
-#define kDataLength 1024
+#define kDataLength 4096
 #define MAXPRINTSIZE 16
 
 unsigned int *generateRandomData(unsigned int length)
@@ -56,7 +56,7 @@ unsigned int *generateRandomData(unsigned int length)
 // Kernel run conveniently packed. Edit as needed, i.e. with more parameters.
 // Only ONE array of data.
 // __kernel void sort(__global unsigned int *data, const unsigned int length)
-void runKernel(cl_kernel kernel, int threads, cl_mem data, unsigned int length, unsigned int ol, unsigned int il)
+void runKernel(cl_kernel kernel, int threads, cl_mem data, unsigned int length, unsigned int k, unsigned int j)
 {
 	size_t localWorkSize, globalWorkSize;
 	cl_int ciErrNum = CL_SUCCESS;
@@ -69,8 +69,8 @@ void runKernel(cl_kernel kernel, int threads, cl_mem data, unsigned int length, 
 	// set the args values
 	ciErrNum  = clSetKernelArg(kernel, 0, sizeof(cl_mem),  (void *) &data);
 	ciErrNum |= clSetKernelArg(kernel, 1, sizeof(cl_uint), (void *) &length);
-    ciErrNum |= clSetKernelArg(kernel, 1, sizeof(cl_uint), (void *) &ol);
-    ciErrNum |= clSetKernelArg(kernel, 1, sizeof(cl_uint), (void *) &il);
+  ciErrNum |= clSetKernelArg(kernel, 2, sizeof(cl_uint), (void *) &k);
+  ciErrNum |= clSetKernelArg(kernel, 3, sizeof(cl_uint), (void *) &j);
 	printCLError(ciErrNum,8);
 	
 	// Run kernel
@@ -97,15 +97,15 @@ int bitonic_gpu(unsigned int *data, unsigned int length)
 	printCLError(ciErrNum,7);
 
 	// ********** RUN THE KERNEL ************
-    ResetMilli();
-    for (unsigned int ol=2;ol<=length;ol=2*ol) // Outer loop, double size for each step
+  ResetMilli(); // You may consider moving this inside bitonic_gpu(), to skip timing of data allocation.
+  for (unsigned int k=2;k<=length;k=2*k) // Outer loop, double size for each step
+  {
+    for (unsigned int j=k>>1;j>0;j=j>>1) // Inner loop, half size for each step
     {
-        for (unsigned int il=ol>>1;il>0;il=il>>1) // Inner loop, half size for each step
-        {
-	        runKernel(gpgpuSort, length, io_data, length, ol, il);
-        }
+  	   runKernel(gpgpuSort, length, io_data, length, k, j);
     }
-    printf("GPU %f\n", GetSeconds());
+  }
+  printf("GPU %f\n", GetSeconds());
 
 	// Get data
 	cl_event event;

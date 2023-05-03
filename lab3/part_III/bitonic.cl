@@ -1,11 +1,13 @@
 /*
  * Placeholder OpenCL kernel
  */
-inline void bytt(__global unsigned int *data, unsigned int a, unsigned int b) {
+inline void bytt(__global unsigned int *data, unsigned int a, unsigned int b) 
+{
   unsigned int temp = data[a];
   data[a] = data[b];
   data[b] = temp;
 }
+
 __kernel void bitonic(__global unsigned int *data, const unsigned int length, unsigned int ol, unsigned int il)
 { 
     unsigned int pos = get_global_id(0);
