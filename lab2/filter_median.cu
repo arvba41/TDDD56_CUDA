@@ -35,13 +35,13 @@
 #define maxKernelSizeY 10
 
 // Use these for setting the filter kernal size
-#define filterSizeX 8
-#define filterSizeY 8
+#define filterSizeX 6
+#define filterSizeY 6
 
 const int blockSize = 32; // #threads per block
 
 // Use this for setting the image file name
-#define FileName "maskros-noisy.ppm" // files names to choose from baboon1.ppm, maskros512.ppm, maskros-noisy.ppm, img1.ppm, img1-noisy.ppm
+#define FileName "maskros512.ppm" // files names to choose from baboon1.ppm, maskros512.ppm, maskros-noisy.ppm, img1.ppm, img1-noisy.ppm
 
 
 // This is the original code -----------

@@ -41,7 +41,7 @@
 const int blockSize = 32; // #threads per block
 
 // Use this for setting the image file name
-#define FileName "img1-noisy.ppm" // files names to choose from baboon1.ppm, maskros512.ppm, maskros-noisy.ppm, img1.ppm, img1-noisy.ppm
+#define FileName "maskros512.ppm" // files names to choose from baboon1.ppm, maskros512.ppm, maskros-noisy.ppm, img1.ppm, img1-noisy.ppm
 
 // This is the original code -----------
 __global__ void filter(unsigned char *image, unsigned char *out, const unsigned int imagesizex, const unsigned int imagesizey, const int kernelsizex, const int kernelsizey)

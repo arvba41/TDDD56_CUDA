@@ -2,20 +2,20 @@
  * Placeholder OpenCL kernel
  */
 
-__kernel void find_max(__global unsigned int *data, const unsigned int length, const unsigned int ii)
+__kernel void find_max(__global unsigned int *data, const unsigned int length, const unsigned int loopcount)
 { 
     // unsigned int pos = 0;
     // unsigned int val;
 
     // getting the index 
-    unsigned int pos = get_global_id(0)*ii*2;
+    unsigned int pos = get_global_id(0)*loopcount*2;
 
     // simple if statement to find the maximum of the array 
     if (pos <= length )
     {
-        if (data[pos] <= data[pos+ii])
+        if (data[pos] <= data[pos+loopcount])
        {
-            data[pos] = data[pos+ii];
+            data[pos] = data[pos+loopcount];
        } 
     } 
 
